@@ -32,11 +32,10 @@ func doReduce(
 
 		decoder := json.NewDecoder(file)
 		for pair := (KeyValue{}); decoder.Decode(&pair) == nil; {
-			if _, ok := KVPairs[pair.Key]; ok {
-				KVPairs[pair.Key] = append(KVPairs[pair.Key], pair.Value)
-			} else {
+			if _, ok := KVPairs[pair.Key]; !ok {
 				KVPairs[pair.Key] = make([]string, 0)
 			}
+			KVPairs[pair.Key] = append(KVPairs[pair.Key], pair.Value)
 		}
 	}
 
