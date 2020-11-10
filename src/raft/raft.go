@@ -88,6 +88,7 @@ type Raft struct {
 
 	applyCh   chan ApplyMsg
 	heartbeat chan int
+	running   bool
 	granted   chan int
 }
 
@@ -140,103 +141,6 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 //
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-	Term         int
-	CandidateID  int
-	LastLogIndex int
-	LastLogTerm  int
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
-	Term        int
-	VoteGranted bool
-}
-
-//
-// example RequestVote RPC handler.
-//
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
-	reply.VoteGranted = false
-	reply.Term = rf.currentTerm
-
-	// reply false if term < currentTerm (§5.1)
-	// tell the peer: you are too old
-	if args.Term < rf.currentTerm {
-		return
-	}
-
-	if args.Term > rf.currentTerm {
-		reply.Term = args.Term
-		rf.resetTerm(args.Term, NullPeer)
-	}
-
-	// voted yet ?
-	if rf.votedFor != NullPeer && rf.votedFor != args.CandidateID {
-		return
-	}
-
-	// not up-to-date
-	if rf.lastTerm() > args.LastLogTerm ||
-		(rf.lastTerm() == args.LastLogTerm &&
-			rf.lastIndex() > args.LastLogIndex) {
-		return
-	}
-
-	DPrintf("%s Vote granted to %d", rf, args.CandidateID)
-	reply.VoteGranted = true
-	rf.resetTerm(args.Term, args.CandidateID)
-	rf.granted <- args.CandidateID
-}
-
-//
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-//
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
-
-//
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -251,13 +155,21 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
 
 	// Your code here (2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	return index, term, isLeader
+	index := 0
+	term := 0
+
+	if rf.currentRole == RoleLeader {
+		index = rf.lastIndex() + 1
+		term = rf.currentTerm
+		rf.logs = append(rf.logs, LogEntry{term, command})
+	}
+
+	return index, term, rf.currentRole == RoleLeader
 }
 
 func (rf *Raft) resetTerm(higherTerm int, peer int) {
@@ -268,60 +180,6 @@ func (rf *Raft) resetTerm(higherTerm int, peer int) {
 	rf.votedFor = peer
 }
 
-func (rf *Raft) getAllVote() chan bool {
-	rf.mu.Lock()
-	rf.currentTerm++
-	rf.votedFor = rf.me
-	args := &RequestVoteArgs{
-		Term:         rf.currentTerm,
-		CandidateID:  rf.me,
-		LastLogIndex: rf.lastIndex(),
-		LastLogTerm:  rf.lastTerm(),
-	}
-	DPrintf("%s Start voting", rf)
-	rf.mu.Unlock()
-
-	//	replyCh := make(chan bool, len(rf.peers)+1)
-	//	replyCh <- true // vote for me
-	voteCount := 1
-	var wg sync.WaitGroup
-	isLeader := make(chan bool)
-	for i := range rf.peers {
-		if i != rf.me {
-			wg.Add(1)
-			go func(peer int) {
-				defer wg.Done()
-				reply := RequestVoteReply{}
-				ok := rf.sendRequestVote(peer, args, &reply)
-
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				if !ok ||
-					rf.currentRole != RoleCandidate ||
-					rf.currentTerm != args.Term {
-					return
-				}
-
-				if reply.Term > rf.currentTerm {
-					rf.resetTerm(reply.Term, NullPeer)
-					return
-				}
-
-				if reply.VoteGranted {
-					voteCount++
-					if voteCount > len(rf.peers)/2 {
-						isLeader <- true
-						DPrintf("%s End voting", rf)
-						return
-					}
-				}
-			}(i)
-		}
-	}
-
-	return isLeader
-}
-
 //
 // the tester calls Kill() when a Raft instance won't
 // be needed again. you are not required to do anything
@@ -330,10 +188,11 @@ func (rf *Raft) getAllVote() chan bool {
 //
 func (rf *Raft) Kill() {
 	// Your code here, if desired.
+	rf.running = false
 }
 
 func (rf *Raft) service() {
-	for {
+	for rf.running {
 		switch rf.currentRole {
 		case RoleFollower:
 			select {
@@ -351,9 +210,16 @@ func (rf *Raft) service() {
 			select {
 			case <-rf.getAllVote():
 				DPrintf("%s Upgrade to Leader", rf)
+
 				rf.mu.Lock()
+				rf.matchIndex = make([]int, len(rf.peers))
+				rf.nextIndex = make([]int, len(rf.peers))
+				for i := range rf.peers {
+					rf.nextIndex[i] = rf.lastIndex() + 1
+				}
 				rf.currentRole = RoleLeader
 				rf.mu.Unlock()
+
 			case <-rf.heartbeat:
 				rf.mu.Lock()
 				rf.currentRole = RoleFollower
@@ -363,7 +229,7 @@ func (rf *Raft) service() {
 			}
 
 		case RoleLeader:
-			//			rf.send()
+			rf.sendLogs()
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
@@ -394,6 +260,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.applyCh = applyCh
 	rf.heartbeat = make(chan int)
 	rf.granted = make(chan int)
+	rf.running = true
 	rf.logs = []LogEntry{{Term: 0, Command: nil}}
 
 	go rf.service()
