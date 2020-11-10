@@ -15,7 +15,7 @@ type AppendEntriesReply struct {
 	ConflictIndex int
 }
 
-func (rf *Raft) sendApply() {
+func (rf *Raft) Commit() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -86,7 +86,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		} else {
 			rf.commitIndex = rf.lastIndex()
 		}
-		go rf.sendApply()
+		go rf.Commit()
 	}
 	//	rf.resetTerm(args.Term, args.LeaderID)
 	DPrintf("%s updated Logs: %v", rf, rf.logs)
@@ -153,17 +153,21 @@ func (rf *Raft) sendLogs() {
 
 					// If there exists an N such that N > commitIndex, a majority
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:set commitIndex = N (§5.3, §5.4).
-					N := rf.commitIndex + 1
+					N := rf.lastIndex()
 					count := 0
-					for i := range rf.matchIndex {
-						if rf.matchIndex[i] >= N {
-							count++
+					for N > rf.commitIndex {
+						for p := range rf.peers {
+							if rf.matchIndex[p] >= N {
+								count++
+							}
+
+							if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
+								rf.commitIndex = N
+								go rf.Commit()
+								break
+							}
 						}
 
-						if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
-							rf.commitIndex = N
-							go rf.sendApply()
-						}
 					}
 				}(i)
 			}

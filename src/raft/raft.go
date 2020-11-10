@@ -167,6 +167,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		index = rf.lastIndex() + 1
 		term = rf.currentTerm
 		rf.logs = append(rf.logs, LogEntry{term, command})
+		DPrintf("%s Append a new command", rf)
 	}
 
 	return index, term, rf.currentRole == RoleLeader
