@@ -19,13 +19,15 @@ func (rf *Raft) sendApply() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	DPrintf("%s send final result: {%d %d}", rf, rf.lastApplied, rf.commitIndex)
 	for rf.lastApplied < rf.commitIndex {
 		rf.lastApplied++
 		rf.applyCh <- ApplyMsg{
 			CommandValid: true,
-			Command:      rf.logs[rf.lastApplied-rf.lastIncludedIndex].Command,
+			Command:      rf.logs[rf.lastApplied].Command,
 			CommandIndex: rf.lastApplied,
 		}
+		DPrintf("%s send final result: {%d %v}", rf, rf.lastApplied, rf.logs[rf.lastApplied].Command)
 	}
 }
 
@@ -84,9 +86,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		} else {
 			rf.commitIndex = rf.lastIndex()
 		}
-		rf.sendApply()
+		go rf.sendApply()
 	}
-	rf.resetTerm(args.Term, args.LeaderID)
+	//	rf.resetTerm(args.Term, args.LeaderID)
 	DPrintf("%s updated Logs: %v", rf, rf.logs)
 }
 
@@ -160,7 +162,7 @@ func (rf *Raft) sendLogs() {
 
 						if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
 							rf.commitIndex = N
-							go rf.sendLogs()
+							go rf.sendApply()
 						}
 					}
 				}(i)
