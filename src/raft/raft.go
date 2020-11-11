@@ -99,6 +99,8 @@ func (rf *Raft) GetState() (int, bool) {
 	//	var term int
 	//	var isleader bool
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	return rf.currentTerm, rf.currentRole == RoleLeader
 }
 
@@ -130,9 +132,15 @@ func (rf *Raft) readPersist(data []byte) {
 	// Example:
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
-	d.Decode(&rf.votedFor)
-	d.Decode(&rf.logs)
-	d.Decode(&rf.currentTerm)
+	var votedFor, currentTerm int
+	var log []LogEntry
+	d.Decode(&votedFor)
+	d.Decode(&log)
+	d.Decode(&currentTerm)
+
+	rf.votedFor = votedFor
+	rf.currentTerm = currentTerm
+	rf.logs = log
 	// if d.Decode(&xxx) != nil ||
 	//    d.Decode(&yyy) != nil {
 	//   error...
@@ -169,6 +177,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 		return rf.lastIndex(), rf.currentTerm, true
 	} else {
+		DPrintf("%s Start %v Failed", rf, command)
 		return 0, 0, false
 	}
 }
