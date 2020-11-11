@@ -274,11 +274,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.running = true
 	rf.logs = []LogEntry{{Term: 0, Command: nil}}
 
-	go rf.service()
-
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	rf.persist()
+
+	go rf.service()
 
 	return rf
 }

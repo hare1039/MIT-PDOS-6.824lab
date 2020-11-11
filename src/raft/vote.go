@@ -32,7 +32,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
 	defer rf.persist()
 
 	reply.VoteGranted = false
@@ -99,7 +98,19 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+	if !ok ||
+		rf.currentRole != RoleCandidate ||
+		rf.currentTerm != args.Term {
+		return false
+	}
+
+	if reply.Term > rf.currentTerm {
+		defer rf.persist()
+		rf.resetTerm(reply.Term, NullPeer)
+		return false
+	}
+
+	return true
 }
 
 func (rf *Raft) getAllVote() chan bool {
@@ -126,24 +137,15 @@ func (rf *Raft) getAllVote() chan bool {
 			wg.Add(1)
 			go func(peer int) {
 				defer wg.Done()
-				reply := RequestVoteReply{}
-				ok := rf.sendRequestVote(peer, args, &reply)
-
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				if !ok ||
-					rf.currentRole != RoleCandidate ||
-					rf.currentTerm != args.Term {
-					return
-				}
-
-				if reply.Term > rf.currentTerm {
-					defer rf.persist()
-					rf.resetTerm(reply.Term, NullPeer)
+				var reply RequestVoteReply
+				if ok := rf.sendRequestVote(peer, args, &reply); !ok {
 					return
 				}
 
 				if reply.VoteGranted {
+					rf.mu.Lock()
+					defer rf.mu.Unlock()
+
 					voteCount++
 					if voteCount > len(rf.peers)/2 {
 						isLeader <- true

@@ -110,7 +110,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	return ok
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if !ok || rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
+		return false
+	}
+
+	if reply.Term > rf.currentTerm {
+		rf.resetTerm(reply.Term, NullPeer)
+		return false
+	}
+
+	return true
 }
 
 func (rf *Raft) sendLogs() {
@@ -144,19 +157,13 @@ func (rf *Raft) sendLogs() {
 
 				go func(peer int, args AppendEntriesArgs) {
 					var reply AppendEntriesReply
-					ok := rf.sendAppendEntries(peer, &args, &reply)
+
+					if ok := rf.sendAppendEntries(peer, &args, &reply); !ok {
+						return
+					}
 
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
-
-					if !ok || rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
-						return
-					}
-
-					if reply.Term > rf.currentTerm {
-						rf.resetTerm(reply.Term, NullPeer)
-						return
-					}
 
 					// If last log index ≥ nextIndex for a follower: sendAppendEntries RPC with log entries starting at nextIndex
 					// If successful: update nextIndex and matchIndex forfollower (§5.3)
