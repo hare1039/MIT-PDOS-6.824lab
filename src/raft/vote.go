@@ -33,6 +33,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	defer rf.persist()
+
 	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
 
@@ -111,6 +113,7 @@ func (rf *Raft) getAllVote() chan bool {
 		LastLogTerm:  rf.lastTerm(),
 	}
 	DPrintf("%s Start voting", rf)
+	rf.persist()
 	rf.mu.Unlock()
 
 	//	replyCh := make(chan bool, len(rf.peers)+1)
@@ -135,6 +138,7 @@ func (rf *Raft) getAllVote() chan bool {
 				}
 
 				if reply.Term > rf.currentTerm {
+					defer rf.persist()
 					rf.resetTerm(reply.Term, NullPeer)
 					return
 				}

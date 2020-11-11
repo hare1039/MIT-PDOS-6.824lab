@@ -33,6 +33,8 @@ func (rf *Raft) Commit() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
+
 	reply.Term = rf.currentTerm
 	reply.Success = false
 	reply.ConflictIndex = rf.logLength()
@@ -43,6 +45,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	if args.Term > rf.currentTerm {
+		defer rf.persist()
 		reply.Term = args.Term
 		rf.resetTerm(args.Term, NullPeer)
 	}
