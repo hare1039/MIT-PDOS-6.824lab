@@ -35,6 +35,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.mu.Unlock()
 	reply.Term = rf.currentTerm
 	reply.Success = false
+	reply.ConflictIndex = rf.logLength()
 
 	// 1. reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
@@ -54,10 +55,23 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	// check terms
+	if args.PrevLogIndex > 0 && rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		for i := range rf.logs {
+			if rf.logs[i].Term == rf.logs[args.PrevLogIndex].Term {
+				reply.ConflictIndex = i
+				break
+			}
+		}
+		return
+	}
+
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all thatfollow it (§5.3)
 	thisLogFirst := rf.logs[:args.PrevLogIndex+1]
 	thisLogSecond := rf.logs[args.PrevLogIndex+1:]
+
+	DPrintf("%s %v | %v", rf, thisLogFirst, thisLogSecond)
 	conflict := false
 	for i := 0; i < len(thisLogSecond) && i < len(args.Entries); i++ {
 		if thisLogSecond[i].Term != args.Entries[i].Term {

@@ -160,17 +160,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	index := 0
-	term := 0
-
 	if rf.currentRole == RoleLeader {
 		rf.logs = append(rf.logs, LogEntry{rf.currentTerm, command})
-		index = rf.lastIndex()
-		term = rf.currentTerm
 		DPrintf("%s Append a new command: %v", rf, command)
+		return rf.lastIndex(), rf.currentTerm, true
+	} else {
+		return 0, 0, false
 	}
-
-	return index, term, rf.currentRole == RoleLeader
 }
 
 func (rf *Raft) resetTerm(higherTerm int, peer int) {
