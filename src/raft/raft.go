@@ -164,16 +164,17 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term := 0
 
 	if rf.currentRole == RoleLeader {
-		index = rf.lastIndex() + 1
+		rf.logs = append(rf.logs, LogEntry{rf.currentTerm, command})
+		index = rf.lastIndex()
 		term = rf.currentTerm
-		rf.logs = append(rf.logs, LogEntry{term, command})
-		DPrintf("%s Append a new command", rf)
+		DPrintf("%s Append a new command: %v", rf, command)
 	}
 
 	return index, term, rf.currentRole == RoleLeader
 }
 
 func (rf *Raft) resetTerm(higherTerm int, peer int) {
+	//	DPrintf("%s reset to follower", rf)
 	rf.currentRole = RoleFollower
 	if higherTerm != NullTerm {
 		rf.currentTerm = higherTerm
@@ -212,11 +213,12 @@ func (rf *Raft) service() {
 			case <-rf.getAllVote():
 				DPrintf("%s Upgrade to Leader", rf)
 
+				rf.sendLogs()
 				rf.mu.Lock()
 				rf.matchIndex = make([]int, len(rf.peers))
 				rf.nextIndex = make([]int, len(rf.peers))
 				for i := range rf.peers {
-					rf.nextIndex[i] = rf.lastIndex() + 1
+					rf.nextIndex[i] = rf.logLength()
 				}
 				rf.currentRole = RoleLeader
 				rf.mu.Unlock()

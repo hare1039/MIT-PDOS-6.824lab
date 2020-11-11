@@ -19,16 +19,15 @@ func (rf *Raft) Commit() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	DPrintf("%s send final result: {%d %d}", rf, rf.lastApplied, rf.commitIndex)
-	for rf.lastApplied < rf.commitIndex {
-		rf.lastApplied++
+	for index := rf.lastApplied + 1; index <= rf.commitIndex; index++ {
 		rf.applyCh <- ApplyMsg{
 			CommandValid: true,
-			Command:      rf.logs[rf.lastApplied].Command,
-			CommandIndex: rf.lastApplied,
+			Command:      rf.logs[index].Command,
+			CommandIndex: index,
 		}
-		DPrintf("%s send final result: {%d %v}", rf, rf.lastApplied, rf.logs[rf.lastApplied].Command)
+		DPrintf("%s send final result: {%d %v}", rf, index, rf.logs[index].Command)
 	}
+	rf.lastApplied = rf.commitIndex
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -57,23 +56,23 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all thatfollow it (§5.3)
-	leaderLogFirst := rf.logs[:args.PrevLogIndex+1]
-	leaderLogSecond := rf.logs[args.PrevLogIndex+1:]
+	thisLogFirst := rf.logs[:args.PrevLogIndex+1]
+	thisLogSecond := rf.logs[args.PrevLogIndex+1:]
 	conflict := false
-	for i := 0; i < len(leaderLogSecond) && i < len(args.Entries); i++ {
-		if leaderLogSecond[i].Term != args.Entries[i].Term {
+	for i := 0; i < len(thisLogSecond) && i < len(args.Entries); i++ {
+		if thisLogSecond[i].Term != args.Entries[i].Term {
 			conflict = true
 			break
 		}
 	}
 
-	// 4. append any new entries not already in the log
-	if len(args.Entries) > len(leaderLogSecond) {
+	if len(args.Entries) > len(thisLogSecond) {
 		conflict = true
 	}
 
+	// 4. append any new entries not already in the log
 	if conflict {
-		rf.logs = append(leaderLogFirst, args.Entries...)
+		rf.logs = append(thisLogFirst, args.Entries...)
 	}
 
 	reply.Success = true
@@ -88,7 +87,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		go rf.Commit()
 	}
-	//	rf.resetTerm(args.Term, args.LeaderID)
+	rf.resetTerm(args.Term, args.LeaderID)
 	DPrintf("%s updated Logs: %v", rf, rf.logs)
 }
 
@@ -103,34 +102,37 @@ func (rf *Raft) sendLogs() {
 	DPrintf("%s SendLogs: %v", rf, rf.logs)
 
 	if rf.currentRole == RoleLeader {
+		// matches on myself
+		rf.matchIndex[rf.me] = rf.lastIndex()
+		DPrintf("%s matchIndex %v", rf, rf.matchIndex)
 		for i := range rf.peers {
 			if i != rf.me {
-				go func(peer int) {
-					index := rf.nextIndex[peer]
-					term := 0
-					if index != 0 {
-						term = rf.logs[index-1].Term
-					}
+				// need to prepare args inside the mutex
+				index := rf.nextIndex[i] - 1
+				//				DPrintf("%s nextindex %v", rf, rf.nextIndex)
+				term := 0
+				if index >= 0 {
+					DPrintf("%s nextindex %v, %d", rf, rf.nextIndex, index)
+					term = rf.logs[index].Term
+				}
 
-					args := AppendEntriesArgs{
-						Term:         rf.currentTerm,
-						LeaderID:     rf.me,
-						LeaderCommit: rf.commitIndex,
-						PrevLogIndex: index - 1,
-						PrevLogTerm:  term,
-						Entries:      rf.logs[index:],
-					}
+				args := AppendEntriesArgs{
+					Term:         rf.currentTerm,
+					LeaderID:     rf.me,
+					LeaderCommit: rf.commitIndex,
+					PrevLogIndex: index,
+					PrevLogTerm:  term,
+					Entries:      rf.logs[index+1:],
+				}
 
+				go func(peer int, args AppendEntriesArgs) {
 					var reply AppendEntriesReply
 					ok := rf.sendAppendEntries(peer, &args, &reply)
 
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
-					if !ok {
-						return
-					}
 
-					if rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
+					if !ok || rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
 						return
 					}
 
@@ -145,7 +147,7 @@ func (rf *Raft) sendLogs() {
 					// ok
 					if reply.Success {
 						rf.matchIndex[peer] = args.PrevLogIndex + len(args.Entries)
-						rf.nextIndex[peer] = rf.matchIndex[peer] + 1
+						rf.nextIndex[peer] = args.PrevLogIndex + len(args.Entries) + 1
 					} else {
 						// failed, mark to unconflicted index
 						rf.nextIndex[peer] = reply.ConflictIndex
@@ -153,23 +155,23 @@ func (rf *Raft) sendLogs() {
 
 					// If there exists an N such that N > commitIndex, a majority
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:set commitIndex = N (§5.3, §5.4).
-					N := rf.lastIndex()
-					count := 0
-					for N > rf.commitIndex {
+					for N := rf.lastIndex(); N > rf.commitIndex; N-- {
+						count := 0
+						DPrintf("%s %v %d", rf, rf.matchIndex, N)
 						for p := range rf.peers {
 							if rf.matchIndex[p] >= N {
 								count++
 							}
-
-							if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
-								rf.commitIndex = N
-								go rf.Commit()
-								break
-							}
 						}
 
+						DPrintf("%s count: %d, Term: %d", rf, count, rf.logs[N].Term)
+						if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
+							rf.commitIndex = N
+							go rf.Commit()
+							break
+						}
 					}
-				}(i)
+				}(i, args)
 			}
 		}
 	}

@@ -8,8 +8,12 @@ func randElectTime() time.Duration {
 	return 400*time.Millisecond + gap
 }
 
+func (rf *Raft) logLength() int {
+	return len(rf.logs)
+}
+
 func (rf *Raft) lastIndex() int {
-	return len(rf.logs) - 1
+	return rf.logLength() - 1
 }
 
 func (rf *Raft) lastTerm() int {

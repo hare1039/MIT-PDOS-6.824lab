@@ -57,6 +57,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		(rf.lastTerm() == args.LastLogTerm &&
 			rf.lastIndex() > args.LastLogIndex) {
 		return
+
 	}
 
 	DPrintf("%s Vote granted to %d", rf, args.CandidateID)
