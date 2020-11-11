@@ -28,7 +28,6 @@ type Role int
 
 const (
 	NullPeer      = -1
-	NullTerm      = -1
 	RoleFollower  = 0
 	RoleCandidate = 1
 	RoleLeader    = 2
@@ -185,9 +184,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) resetTerm(higherTerm int, peer int) {
 	//	DPrintf("%s reset to follower", rf)
 	rf.currentRole = RoleFollower
-	if higherTerm != NullTerm {
-		rf.currentTerm = higherTerm
-	}
+	rf.currentTerm = higherTerm
 	rf.votedFor = peer
 }
 
@@ -270,8 +267,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.applyCh = applyCh
+
 	rf.heartbeat = make(chan int)
 	rf.granted = make(chan int)
+
 	rf.running = true
 	rf.logs = []LogEntry{{Term: 0, Command: nil}}
 

@@ -4,7 +4,7 @@ import "log"
 import "fmt"
 
 // Debugging
-const Debug = 1
+const Debug = 0
 
 func (rf *Raft) String() string {
 	roleStr := ""
