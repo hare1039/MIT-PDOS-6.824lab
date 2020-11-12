@@ -18,6 +18,8 @@ package raft
 //
 
 import "sync"
+
+//import "github.com/sasha-s/go-deadlock"
 import "labrpc"
 import "time"
 
@@ -59,6 +61,7 @@ type ApplyMsg struct {
 // A Go object implementing a single Raft peer.
 //
 type Raft struct {
+	//	mu        deadlock.Mutex      // Lock to protect shared access to this peer's state
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
@@ -196,20 +199,33 @@ func (rf *Raft) resetTerm(higherTerm int, peer int) {
 //
 func (rf *Raft) Kill() {
 	// Your code here, if desired.
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	rf.running = false
 }
 
 func (rf *Raft) service() {
-	for rf.running {
-		switch rf.currentRole {
+	for {
+		rf.mu.Lock()
+		role := rf.currentRole
+		if !rf.running {
+			rf.mu.Unlock()
+			return
+		}
+		rf.mu.Unlock()
+
+		switch role {
 		case RoleFollower:
 			select {
 			case <-rf.granted:
+				DPrintf("%s recieve granted", rf)
 				// pass
 			case <-rf.heartbeat:
+				DPrintf("%s recieve heartbeat", rf)
 				// pass
 			case <-time.After(randElectTime()):
 				rf.mu.Lock()
+				DPrintf("%s no heartbeat, upgrade to Candidate", rf)
 				rf.currentRole = RoleCandidate
 				rf.mu.Unlock()
 			}
@@ -228,7 +244,10 @@ func (rf *Raft) service() {
 				}
 				rf.currentRole = RoleLeader
 				rf.mu.Unlock()
-
+			case <-rf.granted:
+				rf.mu.Lock()
+				rf.currentRole = RoleFollower
+				rf.mu.Unlock()
 			case <-rf.heartbeat:
 				rf.mu.Lock()
 				rf.currentRole = RoleFollower
@@ -268,8 +287,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastApplied = 0
 	rf.applyCh = applyCh
 
-	rf.heartbeat = make(chan int)
-	rf.granted = make(chan int)
+	rf.heartbeat = make(chan int, 100)
+	rf.granted = make(chan int, 100)
 
 	rf.running = true
 	rf.logs = []LogEntry{{Term: 0, Command: nil}}

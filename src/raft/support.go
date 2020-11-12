@@ -5,7 +5,7 @@ import "math/rand"
 
 func randElectTime() time.Duration {
 	gap := time.Duration(rand.Intn(25)*20) * time.Millisecond
-	return 400*time.Millisecond + gap
+	return 700*time.Millisecond + gap
 }
 
 func (rf *Raft) logLength() int {

@@ -1,6 +1,7 @@
 package raft
 
 import "sync"
+import "sync/atomic"
 
 //
 // example RequestVote RPC arguments structure.
@@ -58,7 +59,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		(rf.lastTerm() == args.LastLogTerm &&
 			rf.lastIndex() > args.LastLogIndex) {
 		return
-
 	}
 
 	DPrintf("%s Vote granted to %d", rf, args.CandidateID)
@@ -98,6 +98,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	if !ok ||
 		rf.currentRole != RoleCandidate ||
 		rf.currentTerm != args.Term {
@@ -129,7 +133,9 @@ func (rf *Raft) getAllVote() chan bool {
 
 	//	replyCh := make(chan bool, len(rf.peers)+1)
 	//	replyCh <- true // vote for me
-	voteCount := 1
+	var voteCount, half int32
+	voteCount = 1
+	half = int32(len(rf.peers) / 2)
 	var wg sync.WaitGroup
 	isLeader := make(chan bool)
 	for i := range rf.peers {
@@ -143,11 +149,8 @@ func (rf *Raft) getAllVote() chan bool {
 				}
 
 				if reply.VoteGranted {
-					rf.mu.Lock()
-					defer rf.mu.Unlock()
-
-					voteCount++
-					if voteCount > len(rf.peers)/2 {
+					atomic.AddInt32(&voteCount, 1)
+					if voteCount > half {
 						isLeader <- true
 						DPrintf("%s End voting", rf)
 						return
