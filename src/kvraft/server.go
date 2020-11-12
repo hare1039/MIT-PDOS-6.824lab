@@ -7,7 +7,8 @@ import (
 	"log"
 	"raft"
 	"reflect"
-	"sync"
+	//	"sync"
+	"github.com/sasha-s/go-deadlock"
 	"time"
 )
 
@@ -37,7 +38,8 @@ func (op Op) String() string {
 }
 
 type KVServer struct {
-	mu      sync.Mutex
+	//	mu      sync.Mutex
+	mu      deadlock.Mutex
 	me      int
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
@@ -61,14 +63,13 @@ func (kv *KVServer) atResultCh(index int) chan Op {
 	if val, ok := kv.resultCh[index]; ok {
 		return val
 	} else {
-		ch := make(chan Op, 1)
+		ch := make(chan Op, 100)
 		kv.resultCh[index] = ch
 		return ch
 	}
 }
 
-func (kv *KVServer) startRaft(op Op) (Op, bool) {
-
+func (kv *KVServer) startRaft(op Op) bool {
 	isLeader := make(chan bool)
 	startResult := make(chan bool)
 
@@ -82,27 +83,28 @@ func (kv *KVServer) startRaft(op Op) (Op, bool) {
 			return
 		}
 
-		kv.mu.Lock()
 		ch := kv.atResultCh(index)
-		kv.mu.Unlock()
 
 		select {
 		case returnedOp := <-ch:
 			close(ch)
+			DPrintf("%s ch returned. %s, %t", kv, returnedOp, reflect.DeepEqual(returnedOp, op))
 			startResult <- reflect.DeepEqual(returnedOp, op)
 		}
 	}()
 
-	DPrintf("%s waits result", kv)
+	DPrintf("%s waits result of %s", kv, op)
 	select {
 	case ok := <-startResult:
 		close(startResult)
-		return Op{}, ok
-
-	case <-isLeader:
-		return Op{}, false
-	case <-time.After(700 * time.Millisecond):
-		return Op{}, false
+		DPrintf("%s result ok", kv)
+		return ok
+	case ans := <-isLeader:
+		DPrintf("%s isleader %t", kv, ans)
+		return ans
+	case <-time.After(2000 * time.Millisecond):
+		DPrintf("%s start raft timeout", kv)
+		return false
 	}
 }
 
@@ -111,8 +113,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	op := Op{Command: "Get", Key: args.Key}
 	DPrintf("%s %s", kv, op)
 	reply.IsLeader = false
-	_, ok := kv.startRaft(op)
-	if !ok {
+	if !kv.startRaft(op) {
 		return
 	}
 
@@ -138,9 +139,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 	DPrintf("%s do %s", kv, op)
 
-	_, ok := kv.startRaft(op)
-
-	if !ok {
+	if !kv.startRaft(op) {
 		return
 	}
 
@@ -164,9 +163,11 @@ func (kv *KVServer) service() {
 		msg := <-kv.applyCh
 		op := msg.Command.(Op)
 
+		rsch := kv.atResultCh(msg.CommandIndex)
+
 		DPrintf("%s got op: %s", kv, op)
+
 		kv.mu.Lock()
-		kv.atResultCh(msg.CommandIndex) <- op
 		switch op.Command {
 		case "Get":
 			// pass
@@ -175,7 +176,10 @@ func (kv *KVServer) service() {
 		case "Append":
 			kv.kvstore[op.Key] += op.Value
 		}
+		rsch <- op
 		kv.mu.Unlock()
+		DPrintf("%s after execution %v", kv, kv.kvstore)
+
 	}
 }
 
@@ -207,6 +211,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.resultCh = make(map[int]chan Op)
+	kv.kvstore = make(map[string]string)
 	kv.running = true
 
 	go kv.service()

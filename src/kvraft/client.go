@@ -50,7 +50,7 @@ func (ck *Clerk) Get(key string) string {
 		var reply GetReply
 		ok := ck.servers[ck.leader].Call("KVServer.Get", &GetArgs{Key: key}, &reply)
 
-		if ok || reply.IsLeader {
+		if ok && reply.IsLeader {
 			return reply.Value
 		}
 		ck.nextLeader()
@@ -78,11 +78,10 @@ func (ck *Clerk) nextLeader() {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
-	defer DPrintf("%s '%s':'%s' finiehed", op, key, value)
+	defer DPrintf("Clerk %s %s:%s finiehed", op, key, value)
 	ck.sequence++
 	for {
-		time.Sleep(1 * time.Millisecond)
-		DPrintf("%s '%s':'%s'", op, key, value)
+		time.Sleep(100 * time.Millisecond)
 		args := PutAppendArgs{
 			ClientID: ck.clientID,
 			Sequence: ck.sequence,
@@ -90,12 +89,14 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			Key:      key,
 			Value:    value,
 		}
+
+		DPrintf("Clerk => %d: %s %s:%s waiting reply", ck.leader, op, key, value)
 		var reply PutAppendReply
 		ok := ck.servers[ck.leader].Call("KVServer.PutAppend", &args, &reply)
 
-		DPrintf("%s %s:%s waiting reply", op, key, value)
+		DPrintf("Clerk => %d: %s %s:%s replied: %t %t", ck.leader, op, key, value, ok, reply.IsLeader)
+
 		if ok && reply.IsLeader {
-			DPrintf("%s %s:%s success", op, key, value)
 			return
 		}
 		ck.nextLeader()
