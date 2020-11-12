@@ -6,6 +6,7 @@ import "mapreduce"
 import "strings"
 import "unicode"
 import "sort"
+import "strconv"
 
 // The mapping function is called once for each piece of the input.
 // In this framework, the key is the name of the file that is being processed,
@@ -35,7 +36,7 @@ wordlist:
 func reduceF(key string, values []string) string {
 	// Your code here (Part V).
 	sort.Strings(values)
-	return string(len(values)) + " " + strings.Join(values, ",")
+	return strconv.Itoa(len(values)) + " " + strings.Join(values, ",")
 }
 
 // Can be run in 3 ways:
