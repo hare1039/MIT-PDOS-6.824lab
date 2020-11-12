@@ -15,11 +15,14 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	ClientID int64
+	Sequence int32
 }
 
+// change WrongLeader to IsLeader. IsLeader is easier to understand
 type PutAppendReply struct {
-	WrongLeader bool
-	Err         Err
+	IsLeader bool
+	Err      Err
 }
 
 type GetArgs struct {
@@ -28,7 +31,7 @@ type GetArgs struct {
 }
 
 type GetReply struct {
-	WrongLeader bool
-	Err         Err
-	Value       string
+	IsLeader bool
+	Err      Err
+	Value    string
 }
