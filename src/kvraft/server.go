@@ -44,6 +44,8 @@ type KVServer struct {
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
 
+	persister *raft.Persister
+
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
@@ -161,10 +163,17 @@ func (kv *KVServer) Kill() {
 
 func (kv *KVServer) service() {
 	for kv.running {
-		msg := <-kv.applyCh
-		op := msg.Command.(Op)
+		commitedMsg := <-kv.applyCh
 
-		rsch := kv.atResultCh(msg.CommandIndex)
+		if !commitedMsg.CommandValid {
+			snapshot := commitedMsg.Command.([]byte)
+			kv.installSnapshot(snapshot)
+			continue
+		}
+
+		op := commitedMsg.Command.(Op)
+
+		rsch := kv.atResultCh(commitedMsg.CommandIndex)
 
 		DPrintf("%s got op: %s", kv, op)
 
@@ -182,12 +191,8 @@ func (kv *KVServer) service() {
 			case "Append":
 				kv.kvstore[op.Key] += op.Value
 			}
-			//			rsch <- op
-		} else if op.Command == "Get" {
-			//			rsch <- op
-		} else {
-			DPrintf("%s skip %s", kv, op)
 		}
+		kv.checkSnapshot(commitedMsg.CommandIndex)
 		rsch <- op
 		DPrintf("%s after execution %#v", kv, kv.kvstore)
 		kv.mu.Unlock()
@@ -215,6 +220,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv := new(KVServer)
 	kv.me = me
+	kv.persister = persister
 	kv.maxraftstate = maxraftstate
 
 	// You may need initialization code here.
