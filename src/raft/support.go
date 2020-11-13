@@ -4,8 +4,8 @@ import "time"
 import "math/rand"
 
 func randElectTime() time.Duration {
-	gap := time.Duration(rand.Intn(25)*20) * time.Millisecond
-	return 400*time.Millisecond + gap
+	gap := time.Duration(rand.Intn(15)*10) * time.Millisecond
+	return 150*time.Millisecond + gap
 }
 
 func (rf *Raft) logAt(index int) LogEntry {

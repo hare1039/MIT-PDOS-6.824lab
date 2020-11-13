@@ -149,8 +149,7 @@ func (rf *Raft) getAllVote() chan bool {
 				}
 
 				if reply.VoteGranted {
-					atomic.AddInt32(&voteCount, 1)
-					if voteCount > half {
+					if atomic.AddInt32(&voteCount, 1) > half {
 						isLeader <- true
 						DPrintf("%s End voting", rf)
 						return

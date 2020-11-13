@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// build for lab3
 const Debug = 0
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
@@ -106,7 +107,7 @@ func (kv *KVServer) startRaft(op Op) bool {
 	case ans := <-isLeader:
 		//		DPrintf("%s isleader %t", kv, ans)
 		return ans
-	case <-time.After(700 * time.Millisecond):
+	case <-time.After(350 * time.Millisecond):
 		//		DPrintf("%s start raft timeout", kv)
 		return false
 	}
@@ -159,11 +160,19 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *KVServer) Kill() {
 	kv.rf.Kill()
 	// Your code here, if desired.
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 	kv.running = false
 }
 
 func (kv *KVServer) service() {
-	for kv.running {
+	for {
+		kv.mu.Lock()
+		if !kv.running {
+			kv.mu.Unlock()
+			return
+		}
+		kv.mu.Unlock()
 		commitedMsg := <-kv.applyCh
 
 		if !commitedMsg.CommandValid {

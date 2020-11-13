@@ -94,12 +94,6 @@ func (rf *Raft) sendInstallSnapshot(peer int, args *InstallSnapshotArgs, reply *
 func (rf *Raft) sendSnapshot(peer int) {
 	rf.mu.Lock()
 	role := rf.currentRole
-	rf.mu.Unlock()
-
-	if role != RoleLeader {
-		return
-	}
-
 	args := InstallSnapshotArgs{
 		Term:              rf.currentTerm,
 		LeaderId:          rf.me,
@@ -107,6 +101,12 @@ func (rf *Raft) sendSnapshot(peer int) {
 		LastIncludedTerm:  rf.lastIncludedTerm,
 		Data:              rf.persister.ReadSnapshot(),
 	}
+	rf.mu.Unlock()
+
+	if role != RoleLeader {
+		return
+	}
+
 	var reply InstallSnapshotReply
 
 	ok := rf.sendInstallSnapshot(peer, &args, &reply)
