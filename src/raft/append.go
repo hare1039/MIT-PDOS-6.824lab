@@ -22,10 +22,10 @@ func (rf *Raft) Commit() {
 	for index := rf.lastApplied + 1; index <= rf.commitIndex; index++ {
 		rf.applyCh <- ApplyMsg{
 			CommandValid: true,
-			Command:      rf.logs[index].Command,
+			Command:      rf.logAt(index).Command,
 			CommandIndex: index,
 		}
-		DPrintf("%s send final result: {%d %v}", rf, index, rf.logs[index].Command)
+		DPrintf("%s send final result: {%d %v}", rf, index, rf.logAt(index).Command)
 	}
 	rf.lastApplied = rf.commitIndex
 }
@@ -59,9 +59,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	// check terms
-	if args.PrevLogIndex > 0 && rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
-		for i := range rf.logs {
-			if rf.logs[i].Term == rf.logs[args.PrevLogIndex].Term {
+	if args.PrevLogIndex > 0 && rf.logAt(args.PrevLogIndex).Term != args.PrevLogTerm {
+		for i := rf.logBegin(); i < rf.logLength(); i++ {
+			if rf.logAt(i).Term == rf.logAt(args.PrevLogIndex).Term {
 				reply.ConflictIndex = i
 				break
 			}
@@ -71,8 +71,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all thatfollow it (§5.3)
-	thisLogFirst := rf.logs[:args.PrevLogIndex+1]
-	thisLogSecond := rf.logs[args.PrevLogIndex+1:]
+	thisLogFirst := rf.logRange(rf.logBegin(), args.PrevLogIndex+1)
+	thisLogSecond := rf.logRange(args.PrevLogIndex+1, rf.logEnd())
 
 	DPrintf("%s %v | %v", rf, thisLogFirst, thisLogSecond)
 	conflict := false
@@ -140,10 +140,17 @@ func (rf *Raft) sendLogs() {
 				// need to prepare args inside the mutex
 				index := rf.nextIndex[i] - 1
 				//				DPrintf("%s nextindex %v", rf, rf.nextIndex)
+
+				// Have no logs privous to rf.lastIncludedIndex => send snapshot
+				if index < rf.lastIncludedIndex {
+					go rf.sendSnapshot(i)
+					continue
+				}
+
 				term := 0
 				if index >= 0 {
 					DPrintf("%s nextindex %v, %d", rf, rf.nextIndex, index)
-					term = rf.logs[index].Term
+					term = rf.logAt(index).Term
 				}
 
 				args := AppendEntriesArgs{
@@ -152,7 +159,7 @@ func (rf *Raft) sendLogs() {
 					LeaderCommit: rf.commitIndex,
 					PrevLogIndex: index,
 					PrevLogTerm:  term,
-					Entries:      rf.logs[index+1:],
+					Entries:      rf.logRange(index+1, rf.logEnd()),
 				}
 
 				go func(peer int, args AppendEntriesArgs) {
@@ -188,8 +195,8 @@ func (rf *Raft) sendLogs() {
 							}
 						}
 
-						DPrintf("%s count: %d, Term: %d", rf, count, rf.logs[N].Term)
-						if count > len(rf.peers)/2 && rf.logs[N].Term == rf.currentTerm {
+						DPrintf("%s count: %d, Term: %d", rf, count, rf.logAt(N).Term)
+						if count > len(rf.peers)/2 && rf.logAt(N).Term == rf.currentTerm {
 							rf.commitIndex = N
 							go rf.Commit()
 							break

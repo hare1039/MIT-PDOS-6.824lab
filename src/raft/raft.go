@@ -119,6 +119,8 @@ func (rf *Raft) persist() {
 	e.Encode(rf.votedFor)
 	e.Encode(rf.logs)
 	e.Encode(rf.currentTerm)
+	e.Encode(rf.lastIncludedIndex)
+	e.Encode(rf.lastIncludedTerm)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -136,13 +138,20 @@ func (rf *Raft) readPersist(data []byte) {
 	d := labgob.NewDecoder(r)
 	var votedFor, currentTerm int
 	var log []LogEntry
+	var lastIncludedIndex, lastIncludedTerm int
 	d.Decode(&votedFor)
 	d.Decode(&log)
 	d.Decode(&currentTerm)
+	d.Decode(&lastIncludedIndex)
+	d.Decode(&lastIncludedTerm)
 
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	rf.votedFor = votedFor
 	rf.currentTerm = currentTerm
 	rf.logs = log
+	rf.lastIncludedIndex = lastIncludedIndex
+	rf.lastIncludedTerm = rf.lastIncludedTerm
 	// if d.Decode(&xxx) != nil ||
 	//    d.Decode(&yyy) != nil {
 	//   error...
@@ -296,6 +305,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	rf.persist()
+
+	rf.commitIndex = rf.lastIncludedIndex
+	rf.lastApplied = rf.lastIncludedIndex
 
 	go rf.service()
 
