@@ -81,7 +81,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	defer DPrintf("Clerk %s %s:%s finiehed", op, key, value)
 	ck.sequence++
 	for {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(0 * time.Millisecond)
 		args := PutAppendArgs{
 			ClientID: ck.clientID,
 			Sequence: ck.sequence,

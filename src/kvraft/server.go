@@ -34,7 +34,7 @@ type Op struct {
 
 func (op Op) String() string {
 	//	return fmt.Sprintf("%d %d| %s %s:%q", op.ClientID, op.Sequence, op.Command, op.Key, op.Value)
-	return fmt.Sprintf("%s %s:%q", op.Command, op.Key, op.Value)
+	return fmt.Sprintf("%s %s:%q by %v, %v", op.Command, op.Key, op.Value, op.ClientID, op.Sequence)
 }
 
 type KVServer struct {
@@ -50,6 +50,7 @@ type KVServer struct {
 	running  bool
 	kvstore  map[string]string
 	resultCh map[int]chan Op
+	dupCheck map[int64]int32 // may have dup request (Test: unreliable net, many clients (3A))
 }
 
 func (kv *KVServer) String() string {
@@ -74,8 +75,8 @@ func (kv *KVServer) startRaft(op Op) bool {
 	startResult := make(chan bool)
 
 	go func() {
-		DPrintf("%s start %s", kv, op)
-		defer DPrintf("%s end %s", kv, op)
+		//		DPrintf("%s start %s", kv, op)
+		//		defer DPrintf("%s end %s", kv, op)
 		index, _, leader := kv.rf.Start(op)
 
 		if !leader {
@@ -88,22 +89,22 @@ func (kv *KVServer) startRaft(op Op) bool {
 		select {
 		case returnedOp := <-ch:
 			close(ch)
-			DPrintf("%s ch returned. %s, %t", kv, returnedOp, reflect.DeepEqual(returnedOp, op))
+			//			DPrintf("%s ch returned. %s, %t", kv, returnedOp, reflect.DeepEqual(returnedOp, op))
 			startResult <- reflect.DeepEqual(returnedOp, op)
 		}
 	}()
 
-	DPrintf("%s waits result of %s", kv, op)
+	//	DPrintf("%s waits result of %s", kv, op)
 	select {
 	case ok := <-startResult:
 		close(startResult)
-		DPrintf("%s result ok", kv)
+		//		DPrintf("%s result ok", kv)
 		return ok
 	case ans := <-isLeader:
-		DPrintf("%s isleader %t", kv, ans)
+		//		DPrintf("%s isleader %t", kv, ans)
 		return ans
-	case <-time.After(2000 * time.Millisecond):
-		DPrintf("%s start raft timeout", kv)
+	case <-time.After(700 * time.Millisecond):
+		//		DPrintf("%s start raft timeout", kv)
 		return false
 	}
 }
@@ -111,7 +112,7 @@ func (kv *KVServer) startRaft(op Op) bool {
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// default error
 	op := Op{Command: "Get", Key: args.Key}
-	DPrintf("%s %s", kv, op)
+	//	DPrintf("%s %s", kv, op)
 	reply.IsLeader = false
 	if !kv.startRaft(op) {
 		return
@@ -137,7 +138,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		ClientID: args.ClientID,
 		Sequence: args.Sequence,
 	}
-	DPrintf("%s do %s", kv, op)
+	//	DPrintf("%s do %s", kv, op)
 
 	if !kv.startRaft(op) {
 		return
@@ -168,18 +169,28 @@ func (kv *KVServer) service() {
 		DPrintf("%s got op: %s", kv, op)
 
 		kv.mu.Lock()
-		switch op.Command {
-		case "Get":
-			// pass
-		case "Put":
-			kv.kvstore[op.Key] = op.Value
-		case "Append":
-			kv.kvstore[op.Key] += op.Value
+		seq, ok := kv.dupCheck[op.ClientID]
+		if !ok /* not exist the op.ClientID */ ||
+			op.Sequence > seq /* have large sequence */ {
+			kv.dupCheck[op.ClientID] = op.Sequence
+
+			switch op.Command {
+			case "Get":
+				// pass
+			case "Put":
+				kv.kvstore[op.Key] = op.Value
+			case "Append":
+				kv.kvstore[op.Key] += op.Value
+			}
+			//			rsch <- op
+		} else if op.Command == "Get" {
+			//			rsch <- op
+		} else {
+			DPrintf("%s skip %s", kv, op)
 		}
 		rsch <- op
+		DPrintf("%s after execution %#v", kv, kv.kvstore)
 		kv.mu.Unlock()
-		DPrintf("%s after execution %v", kv, kv.kvstore)
-
 	}
 }
 
@@ -208,11 +219,12 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	// You may need initialization code here.
 
-	kv.applyCh = make(chan raft.ApplyMsg)
+	kv.applyCh = make(chan raft.ApplyMsg, 100)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.resultCh = make(map[int]chan Op)
 	kv.kvstore = make(map[string]string)
 	kv.running = true
+	kv.dupCheck = make(map[int64]int32)
 
 	go kv.service()
 	// You may need initialization code here.
