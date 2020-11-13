@@ -7,8 +7,8 @@ import (
 	"log"
 	"raft"
 	"reflect"
-	//	"sync"
-	"github.com/sasha-s/go-deadlock"
+	"sync"
+	//	"github.com/sasha-s/go-deadlock"
 	"time"
 )
 
@@ -38,8 +38,8 @@ func (op Op) String() string {
 }
 
 type KVServer struct {
-	//	mu      sync.Mutex
-	mu      deadlock.Mutex
+	mu sync.Mutex
+	//mu      deadlock.Mutex
 	me      int
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
