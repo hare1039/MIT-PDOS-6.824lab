@@ -168,6 +168,7 @@ func (kv *KVServer) service() {
 		if !commitedMsg.CommandValid {
 			snapshot := commitedMsg.Command.([]byte)
 			kv.installSnapshot(snapshot)
+			DPrintf("%s snapshot installed %#v", kv, kv.kvstore)
 			continue
 		}
 
@@ -175,7 +176,7 @@ func (kv *KVServer) service() {
 
 		rsch := kv.atResultCh(commitedMsg.CommandIndex)
 
-		DPrintf("%s got op: %s", kv, op)
+		//		DPrintf("%s got op: %s", kv, op)
 
 		kv.mu.Lock()
 		seq, ok := kv.dupCheck[op.ClientID]
@@ -194,7 +195,7 @@ func (kv *KVServer) service() {
 		}
 		kv.checkSnapshot(commitedMsg.CommandIndex)
 		rsch <- op
-		DPrintf("%s after execution %#v", kv, kv.kvstore)
+		//		DPrintf("%s after execution %#v", kv, kv.kvstore)
 		kv.mu.Unlock()
 	}
 }
@@ -231,6 +232,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.kvstore = make(map[string]string)
 	kv.running = true
 	kv.dupCheck = make(map[int64]int32)
+
+	kv.installSnapshot(kv.persister.ReadSnapshot())
 
 	go kv.service()
 	// You may need initialization code here.

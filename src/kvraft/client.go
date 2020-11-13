@@ -78,7 +78,7 @@ func (ck *Clerk) nextLeader() {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
-	defer DPrintf("Clerk %s %s:%s finiehed", op, key, value)
+	//	defer DPrintf("Clerk %s %s:%s finiehed", op, key, value)
 	ck.sequence++
 	for {
 		time.Sleep(0 * time.Millisecond)
@@ -90,11 +90,11 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			Value:    value,
 		}
 
-		DPrintf("Clerk => %d: %s %s:%s waiting reply", ck.leader, op, key, value)
+		//		DPrintf("Clerk => %d: %s %s:%s waiting reply", ck.leader, op, key, value)
 		var reply PutAppendReply
 		ok := ck.servers[ck.leader].Call("KVServer.PutAppend", &args, &reply)
 
-		DPrintf("Clerk => %d: %s %s:%s replied: %t %t", ck.leader, op, key, value, ok, reply.IsLeader)
+		//		DPrintf("Clerk => %d: %s %s:%s replied: %t %t", ck.leader, op, key, value, ok, reply.IsLeader)
 
 		if ok && reply.IsLeader {
 			return
