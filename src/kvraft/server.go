@@ -90,6 +90,7 @@ func (kv *KVServer) startRaft(op Op) bool {
 
 		select {
 		case returnedOp := <-ch:
+			defer func() { recover() }()
 			close(ch)
 			//			DPrintf("%s ch returned. %s, %t", kv, returnedOp, reflect.DeepEqual(returnedOp, op))
 			startResult <- reflect.DeepEqual(returnedOp, op)
