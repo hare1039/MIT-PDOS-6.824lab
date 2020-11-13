@@ -8,7 +8,7 @@ func (kv *KVServer) checkSnapshot(index int) {
 		return
 	}
 
-	if float64(kv.persister.RaftStateSize())/float64(kv.maxraftstate) > 0.85 {
+	if float64(kv.persister.RaftStateSize())/float64(kv.maxraftstate) > 0.95 {
 		DPrintf("%s save state at %d: %#v", kv, index, kv.kvstore)
 		go kv.rf.StartSnapshotOn(index, kv.snapshot())
 	}

@@ -112,12 +112,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	if ok := rf.peers[server].Call("Raft.AppendEntries", args, reply); !ok {
+		return false
+	}
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok || rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
+	if rf.currentRole != RoleLeader || rf.currentTerm != args.Term {
 		return false
 	}
 

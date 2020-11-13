@@ -42,7 +42,12 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 	// 2.  Create new snapshot file if first chunk (offset is 0)
 	// 3.  Write data into snapshot file at given offset
+	// Write into go objects, no need of offset
 	// 4.  Reply and wait for more data chunks if done is false
+	if !args.Done {
+		return
+	}
+
 	// 5.  Save snapshot file, discard any existing or partial snapshot with a smaller index
 	// 6.  If existing log entry has same index and term as snapshot’s last included entry,
 	//     retain log entries following it and reply
@@ -100,6 +105,7 @@ func (rf *Raft) sendSnapshot(peer int) {
 		LastIncludedIndex: rf.lastIncludedIndex,
 		LastIncludedTerm:  rf.lastIncludedTerm,
 		Data:              rf.persister.ReadSnapshot(),
+		Done:              true,
 	}
 	rf.mu.Unlock()
 
@@ -108,14 +114,12 @@ func (rf *Raft) sendSnapshot(peer int) {
 	}
 
 	var reply InstallSnapshotReply
-
-	ok := rf.sendInstallSnapshot(peer, &args, &reply)
+	if ok := rf.sendInstallSnapshot(peer, &args, &reply); !ok {
+		return
+	}
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if !ok {
-		return
-	}
 
 	if reply.Term > rf.currentTerm {
 		rf.resetTerm(reply.Term, NullPeer)

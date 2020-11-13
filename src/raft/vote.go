@@ -31,11 +31,12 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
+	reply.VoteGranted = false
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
 
-	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
 
 	// reply false if term < currentTerm (§5.1)
@@ -97,13 +98,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	if ok := rf.peers[server].Call("Raft.RequestVote", args, reply); !ok {
+		return false
+	}
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok ||
-		rf.currentRole != RoleCandidate ||
+	if rf.currentRole != RoleCandidate ||
 		rf.currentTerm != args.Term {
 		return false
 	}

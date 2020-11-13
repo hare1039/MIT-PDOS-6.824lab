@@ -89,6 +89,7 @@ type Raft struct {
 	lastIncludedTerm  int
 
 	applyCh   chan ApplyMsg
+	applyChMu sync.Mutex
 	heartbeat chan int
 	running   bool
 	granted   chan int

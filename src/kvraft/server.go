@@ -50,7 +50,7 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
-	running  bool
+	running  chan bool
 	kvstore  map[string]string
 	resultCh map[int]chan Op
 	dupCheck map[int64]int32 // may have dup request (Test: unreliable net, many clients (3A))
@@ -160,20 +160,19 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *KVServer) Kill() {
 	kv.rf.Kill()
 	// Your code here, if desired.
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-	kv.running = false
+	kv.running <- false
 }
 
 func (kv *KVServer) service() {
 	for {
-		kv.mu.Lock()
-		if !kv.running {
-			kv.mu.Unlock()
+		var commitedMsg raft.ApplyMsg
+
+		select {
+		case <-kv.running:
 			return
+		case commitedMsg = <-kv.applyCh:
+			// continue
 		}
-		kv.mu.Unlock()
-		commitedMsg := <-kv.applyCh
 
 		if !commitedMsg.CommandValid {
 			snapshot := commitedMsg.Command.([]byte)
@@ -236,11 +235,11 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	// You may need initialization code here.
 
-	kv.applyCh = make(chan raft.ApplyMsg, 100)
+	kv.applyCh = make(chan raft.ApplyMsg, 1000)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.resultCh = make(map[int]chan Op)
 	kv.kvstore = make(map[string]string)
-	kv.running = true
+	kv.running = make(chan bool)
 	kv.dupCheck = make(map[int64]int32)
 
 	kv.installSnapshot(kv.persister.ReadSnapshot())
