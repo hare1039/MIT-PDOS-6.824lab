@@ -30,6 +30,9 @@ func (rf *Raft) logRange(begin int, end int) []LogEntry {
 
 // returns corrected index
 func (rf *Raft) logVIndex(index int) int {
+	if index < rf.lastIncludedIndex {
+		DPrintf("%s index error %d - %d = %d", rf, index, rf.lastIncludedIndex, index-rf.lastIncludedIndex)
+	}
 	return index - rf.lastIncludedIndex
 }
 

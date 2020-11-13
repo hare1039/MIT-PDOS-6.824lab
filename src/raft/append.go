@@ -59,8 +59,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	// check terms
-	if args.PrevLogIndex > 0 && rf.logAt(args.PrevLogIndex).Term != args.PrevLogTerm {
-		for i := rf.logBegin(); i < rf.logLength(); i++ {
+	if args.PrevLogIndex > rf.lastIncludedIndex && rf.logAt(args.PrevLogIndex).Term != args.PrevLogTerm {
+		for i := rf.logBegin(); i < rf.logEnd(); i++ {
 			if rf.logAt(i).Term == rf.logAt(args.PrevLogIndex).Term {
 				reply.ConflictIndex = i
 				break
@@ -68,6 +68,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		return
 	}
+
+	// sometimes args.PrevLogIndex have lower index. Skip and wait until sendSnapshot finish
+	defer func() { recover() }()
 
 	// 3. if an existing entry conflicts with a new one (same index but different terms),
 	// delete the existing entry and all thatfollow it (§5.3)
